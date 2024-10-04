@@ -7,6 +7,9 @@
 
 import Cocoa
 import SwiftUI
+import IOKit
+import Darwin
+
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
@@ -16,7 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         // Set the initial title or icon for the menu bar item
-        statusItem?.button?.title = "Loading..."
+        statusItem?.button?.title = "Sysmo..."
 
         // Set up a menu for additional options
         let menu = NSMenu()
@@ -49,12 +52,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func getMemoryUsage() -> Int {
-        let usedMemory = ProcessInfo.processInfo.physicalMemory
-        // Convert to percentage (rough calculation)
-        let totalMemory = Double(ProcessInfo.processInfo.physicalMemory)
-        let usagePercentage = (Double(usedMemory) / totalMemory) * 100
+        var vmStat = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &vmStat) { (vmStatPtr) -> kern_return_t in
+            vmStatPtr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+
+        guard result == KERN_SUCCESS else {
+            return -1 // Return -1 if unable to fetch memory stats
+        }
+
+        let pageSize = UInt64(vm_kernel_page_size)
+        
+        // Only consider active and wired memory as "used memory"
+        let usedMemory = (UInt64(vmStat.active_count) + UInt64(vmStat.wire_count))
+        let freeMemory = UInt64(vmStat.free_count)
+        
+        // Total memory is the sum of used and free memory
+        let totalMemory = usedMemory + freeMemory
+
+        let usagePercentage = (Double(usedMemory) / Double(totalMemory)) * 100
         return Int(usagePercentage)
     }
+
+
 
     func getCpuUsage() -> Int {
         // Implement CPU usage retrieval, use 10% as a placeholder
